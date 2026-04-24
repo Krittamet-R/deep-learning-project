@@ -1,0 +1,21 @@
+start training
+installed GPU
+epoch: 0 training_loss: 26.666455000638962 validation_loss: 56.53269708156586
+epoch: 10 training_loss: 0.12635650957236066 validation_loss: 0.2828456648854232
+epoch: 20 training_loss: 0.05363824353844393 validation_loss: 0.13103306537891335
+epoch: 30 training_loss: 0.05182896200858522 validation_loss: 0.12930109546900503
+epoch: 40 training_loss: 0.05067405803856673 validation_loss: 0.1262298632208575
+epoch: 50 training_loss: 0.049570672534173355 validation_loss: 0.12382383178848239
+epoch: 60 training_loss: 0.04866867256350815 validation_loss: 0.1212039406198655
+epoch: 70 training_loss: 0.0479252570294193 validation_loss: 0.11947177371195927
+epoch: 80 training_loss: 0.04727375999937067 validation_loss: 0.11805349972492238
+epoch: 90 training_loss: 0.046748829932766967 validation_loss: 0.116593630662334
+==== back tracking test (2026) ====
+Directional Accuracy: 44.74%
+First 5 Results (Predicted vs Actual Log Returns):
+P: -0.0007 | A: 0.0044
+P: -0.0118 | A: -0.0070
+P: 0.0132 | A: 0.0240
+P: -0.0112 | A: 0.0107
+P: -0.0145 | A: 0.0096
+Done!
