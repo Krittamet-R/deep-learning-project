@@ -3,7 +3,6 @@ import torch.nn as nn
 import numpy as np
 import json
 import math
-import logging
 import os
 import sys
 
@@ -27,10 +26,10 @@ class MyModel(nn.Module):
         self.layers = nn.Sequential(
             nn.Linear(10,10),
             nn.LeakyReLU(),
+            nn.Dropout(0.2),
             nn.Linear(10,10),
             nn.LeakyReLU(),
-            nn.Linear(10,10),
-            nn.LeakyReLU(),
+            nn.Dropout(0.2),
             nn.Linear(10,10),
             nn.LeakyReLU(),
             nn.Linear(10,5)
@@ -72,7 +71,7 @@ def load_dataset(source):
         if previous_vwap is not None and previous_vwap > 0:
             vwap_return = math.log(current / previous_vwap)
         else:
-            vwap_return = 0.0
+            vwap_return = math.log(1)
 
         VWAP_normalize.append(vwap_return)
         previous_vwap = current
@@ -102,7 +101,7 @@ def load_dataset(source):
             pythonArray.append([0, 0, 0]) #make initial state
 
     pythonArray = np.array(pythonArray)
-    array = np.hstack((pythonArray, RSI_normalize, VWAP_normalize)) # add RSI, VWAP [N, 1] to pythonArray
+    array = np.hstack((pythonArray, RSI_normalize, VWAP_normalize*100)) # add RSI, VWAP [N, 1] to pythonArray
 
     tensor = torch.tensor(array, dtype=torch.float32)
     return tensor
@@ -111,11 +110,46 @@ def installGPU():
     device = "cpu"
     if torch.accelerator.is_available():
         device = torch.accelerator.current_accelerator()
-        logging.info("installed GPU")
+        print("installed GPU")
     return device
 
-def validation_test(result):
-    device = installGPU()
+def test(result, device):
+    print("==== back tracking test (2026) ====")
+    dataset = load_dataset(test_set).to(device)
+    result.eval()
+    
+    correct_direction = 0
+    total_samples = len(dataset) - 1
+    
+    # track the actual log returns vs predicted
+    predictions = []
+    actuals = []
+
+    with torch.no_grad():
+        for j in range(total_samples):
+            input_data = dataset[j].unsqueeze(0) 
+            target = dataset[j+1, 0].item() 
+
+            output = result(input_data).item() 
+            
+            # Check Directional Accuracy
+            # If both are positive or both are negative, the direction is right
+            if (output > 0 and target > 0) or (output < 0 and target < 0):
+                correct_direction += 1
+            
+            predictions.append(output)
+            actuals.append(target)
+
+    accuracy = (correct_direction / total_samples) * 100
+    print(f"Directional Accuracy: {accuracy:.2f}%")
+    
+    # Simple sanity check: print the first 5 predictions vs actuals
+    print("First 5 Results (Predicted vs Actual Log Returns):")
+    for i in range(5):
+        print(f"P: {predictions[i]:.4f} | A: {actuals[i]:.4f}")
+
+
+def validation_test(result, device):
     dataset = load_dataset(validation_set).to(device)
     result.eval()
     loss_function = nn.MSELoss()
@@ -134,7 +168,7 @@ def validation_test(result):
     return validation_loss
 
 def train():
-    logging.info("start training")
+    print("start training")
     device = installGPU()
     model = MyModel().to(device)
 
@@ -142,10 +176,11 @@ def train():
     loss_function = nn.MSELoss()
     learning_rate = 0.0001
     back_propagation = torch.optim.Adam(model.parameters(), learning_rate)
-    epoch = 200
+    epoch = 100
 
     dataset = load_dataset(training_set).to(device)
 
+    model.train()
     for i in range(epoch):
         training_loss = 0
         batch_size = 16
@@ -165,7 +200,7 @@ def train():
             training_loss += difference.item()
         
         if(i % 10 == 0):
-            validation_loss = validation_test(model)
+            validation_loss = validation_test(model, device)
             print(f"epoch: {i} training_loss: {training_loss} validation_loss: {validation_loss}")
             checkpoint = {
                 'epoch': epoch,
@@ -177,7 +212,8 @@ def train():
 
             torch.save(checkpoint, "checkpoint.pth")
     
-    logging.info("Done!")
+    test(model, device)
+    print("Done!")
     torch.save(model.state_dict(), save_to)
 
 if __name__ == "__main__":
