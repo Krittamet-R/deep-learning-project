@@ -4,12 +4,19 @@ import numpy as np
 import json
 import math
 import logging
-from ..custom_indicator import get_RSI
+import os
+import sys
+
+try:
+    from ..custom_indicator import get_RSI, get_VWAP
+except ImportError:
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from custom_indicator import get_RSI, get_VWAP
 
 training_set = "dataset/GOOGL_training_set.json" #2020-2024
 validation_set = "dataset/GOOGL_validation_set.json" #2025
 test_set = "dataset/GOOGL_test_set.json" #2026
-save_to = "model/google_model"
+save_to = "model/google_model.pth"
 
 class MyModel(nn.Module):
     def __init__(self):
@@ -40,8 +47,8 @@ class MyModel(nn.Module):
 def changePercentage(previous, current):
     return math.log(current/previous)
 
-def load_input():
-    with open(training_set, "r") as data:
+def load_dataset(source):
+    with open(source, "r") as data:
         dataset = json.load(data)
     
     pythonArray = []
@@ -49,7 +56,28 @@ def load_input():
     previous_open = None
     previous_volume = None
 
-    RSI_indicator = get_RSI(dataset, 14)# 14 day RSI
+    RSI_indicator = np.array(get_RSI(dataset, 14))# 14 day RSI
+    VWAP_indicator = np.array(get_VWAP(dataset, 14))# 1 day RSI
+
+    #Normalize the indicator
+    RSI_normalize = RSI_indicator/100
+
+    VWAP_indicator = np.array(VWAP_indicator).flatten()  # make it [N]
+    VWAP_normalize = []
+    previous_vwap = None
+
+    for i in range(len(VWAP_indicator)):
+        current = VWAP_indicator[i]
+
+        if previous_vwap is not None and previous_vwap > 0:
+            vwap_return = math.log(current / previous_vwap)
+        else:
+            vwap_return = 0.0
+
+        VWAP_normalize.append(vwap_return)
+        previous_vwap = current
+
+    VWAP_normalize = np.array(VWAP_normalize).reshape(-1, 1)
 
     for row in dataset:
 
@@ -71,8 +99,10 @@ def load_input():
             previous_close = row["Close"]
             previous_open = row["Open"]
             previous_volume = row["Volume"]
+            pythonArray.append([0, 0, 0]) #make initial state
 
-    array = np.hstack((pythonArray, RSI_indicator)) # add RSI [N, 1] to pythonArray
+    pythonArray = np.array(pythonArray)
+    array = np.hstack((pythonArray, RSI_normalize, VWAP_normalize)) # add RSI, VWAP [N, 1] to pythonArray
 
     tensor = torch.tensor(array, dtype=torch.float32)
     return tensor
@@ -84,49 +114,70 @@ def installGPU():
         logging.info("installed GPU")
     return device
 
+def validation_test(result):
+    device = installGPU()
+    dataset = load_dataset(validation_set).to(device)
+    result.eval()
+    loss_function = nn.MSELoss()
+    validation_loss = 0
+
+    with torch.no_grad():
+        for j in range(0, len(dataset) - 1):
+            input_data = dataset[j].unsqueeze(0)  # [1, features]
+            target = dataset[j+1, 0].unsqueeze(0).unsqueeze(1)  # [1,1]
+
+            output = result(input_data)
+            loss = loss_function(output, target)
+
+            validation_loss += loss.item()
+    
+    return validation_loss
+
 def train():
     logging.info("start training")
     device = installGPU()
     model = MyModel().to(device)
 
     #config
-    loss = nn.MSELoss()
+    loss_function = nn.MSELoss()
     learning_rate = 0.0001
     back_propagation = torch.optim.Adam(model.parameters(), learning_rate)
     epoch = 200
 
-    input = load_input()
+    dataset = load_dataset(training_set).to(device)
 
     for i in range(epoch):
-        total_loss = 0
+        training_loss = 0
         batch_size = 16
         next = 12
-        for j in range(0, len(input)-1, next): #make it overlap
-            end = min(j+batch_size, len(input)-1) #prevent out of bound
-            batch_input = input[j:end].to(device)
-            batch_target = input[j+1:end+1, 0].unsqueeze(1).to(device) #select close as target
+        for j in range(0, len(dataset)-1, next): #make it overlap
+            end = min(j+batch_size, len(dataset)-1) #prevent out of bound
+            batch_input = dataset[j:end]
+            batch_target = dataset[j+1:end+1, 0].unsqueeze(1) #select close as target
 
             output = model(batch_input)
-            difference = loss(output, batch_target)
+            difference = loss_function(output, batch_target)
 
             back_propagation.zero_grad()
             difference.backward()
             back_propagation.step()
             
-            total_loss = difference.item()
+            training_loss += difference.item()
         
         if(i % 10 == 0):
-            print(f"epoch: {epoch} loss: {total_loss}")
+            validation_loss = validation_test(model)
+            print(f"epoch: {i} training_loss: {training_loss} validation_loss: {validation_loss}")
             checkpoint = {
                 'epoch': epoch,
                 'model_state': model.state_dict(),
                 'back_propagation_state': back_propagation.state_dict(),
-                'loss': total_loss
+                'training_loss': training_loss,
+                'validation_loss': validation_loss
             }
-        
+
             torch.save(checkpoint, "checkpoint.pth")
     
-    logging.info("train model finish")
+    logging.info("Done!")
     torch.save(model.state_dict(), save_to)
 
 if __name__ == "__main__":
