@@ -7,10 +7,10 @@ import os
 import sys
 
 try:
-    from ..custom_indicator import get_RSI, get_VWAP
+    from ..custom_tool import get_RSI, get_VWAP #outdate
 except ImportError:
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from custom_indicator import get_RSI, get_VWAP
+    from MLP.custom_tool import get_RSI, get_VWAP #outdate
 
 training_set = "dataset/GOOGL_training_set.json" #2020-2024
 validation_set = "dataset/GOOGL_validation_set.json" #2025

@@ -4,7 +4,7 @@ import pandas as pd
 ticker = "GOOGL"
 
 #downloaded = yf.download(ticker, period="max", interval = "1d")
-downloaded = yf.download(ticker, start="2026-01-01", interval = "1d")
+downloaded = yf.download(ticker, start="2022-01-01", end = "2022-12-31", interval = "1d")
 if downloaded is None or downloaded.empty:
 	raise RuntimeError(f"Failed to download data for ticker: {ticker}")
 
