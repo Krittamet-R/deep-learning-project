@@ -1,3 +1,4 @@
+
 def get_RSI(dataset, interval):
     RSI = []
     for i in range(len(dataset)):
