@@ -9,6 +9,13 @@
 | LSTM | Not yet | 0 |
 | Transformer | Not yet | 0 |
 
+## Overview
+
+```md
+MLP-V2: using indicators, use return change, apply validation test, final test
+MLP-V1: starter model
+```
+
 ## Document
 
 ```md
