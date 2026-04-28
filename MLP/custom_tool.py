@@ -3,37 +3,34 @@ import numpy as np
 
 def initialize_dataset(json_data):
     df = pd.DataFrame(json_data)
-    df['Close'] = df['Close'].ffill()
-    df['High'] = df['High'].ffill()
-    df['Low'] = df['Low'].ffill()
-    df['Open'] = df['Open'].ffill()
-    df['Volume'] = df['Volume'].ffill()
+    # Ensure columns are numeric and fill missing prices
+    for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+        df[col] = pd.to_numeric(df[col], errors='coerce').ffill()
     return df
 
 def add_RSI(df, interval=14):
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=interval).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=interval).mean()
-    rs = gain / loss
+    
+    # Avoid division by zero
+    rs = gain / loss.replace(0, np.nan)
     df['RSI'] = 100 - (100 / (1 + rs))
-    df['RSI'] = df['RSI'].fillna(50.0) / 100 # Normalized 0-1
+    
+    # Normalize to 0-1 range. 
+    # Don't fill with 0.5 yet; let dropna handle the empty rows at the start.
+    df['RSI'] = df['RSI'] / 100.0
     return df
 
 def add_MA(df, interval=20):
     df[f'MA'] = df['Close'].rolling(window=interval).mean()
-    return df
-
-def add_MA_Dist(df, interval=20):
-    df[f'MA_Dist_{interval}'] = (df['Close'] - df[f'MA_{interval}']) / df[f'MA_{interval}']
+    df[f'MA_Dist'] = (df['Close'] - df[f'MA']) / df[f'MA']
     return df
 
 def add_volatility(df):
-    """
-    Calculates the Intraday/Intraweek Range.
-    This tells the AI: 'How big was the battle today?'
-    """
-    # math.log(High/Low) equivalent for Pandas
-    df['volatility'] = np.log(df['High'] / df['Low'])
+    # Log High/Low is excellent. 
+    # We add a small epsilon to avoid log(0) if high == low
+    df['volatility'] = np.log(df['High'] / df['Low'].replace(0, 0.0001))
     return df
 
 def add_rolling_volatility(df, interval=5):
@@ -57,7 +54,9 @@ def add_Log_Return_Close(df):
     return df
 
 def add_Log_Return_Volume(df):
-    df['volume_log_return'] = np.log(df['Volume'].replace(0, 1) / df['Volume'].shift(1).replace(0, 1))
+    # Replace 0 volume with 1 to avoid log(0)
+    v = df['Volume'].replace(0, 1)
+    df['volume_log_return'] = np.log(v / v.shift(1))
     return df
 
 def drop_close(df):
@@ -76,16 +75,13 @@ def drop_volume(df):
     return df.drop(columns=['Volume'], errors='ignore')
 
 def add_targets(df, horizon=5, buy_threshold=0.03, sell_threshold=-0.02):
-    # 1. Look ahead: What is the price 'horizon' days from now?
     future_price = df['Close'].shift(-horizon)
-    
-    # 2. Calculate the return
     target_return = (future_price - df['Close']) / df['Close']
     
-    # 3. Apply the Triple Barrier (0=Sell, 1=Hold, 2=Buy)
-    df['Target'] = 1 # Default to Hold
-    df.loc[target_return >= buy_threshold, 'Target'] = 2
-    df.loc[target_return <= sell_threshold, 'Target'] = 0
+    df['Target'] = 1 # Hold
+    df.loc[target_return >= buy_threshold, 'Target'] = 2 # Buy
+    df.loc[target_return <= sell_threshold, 'Target'] = 0 # Sell
     
-    # IMPORTANT: Remove the last 'horizon' rows because they have no future data
-    return df.dropna()
+    # FINAL CLEANUP: This removes the 'warm-up' NaNs from RSI/MA 
+    # AND the 'future' NaNs from the Target shift.
+    return df.dropna().reset_index(drop=True)
